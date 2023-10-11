@@ -1,0 +1,37 @@
+# enable OIDC (Open ID Connect) issuer and workload identity on the cluster
+az aks update --enable-oidc-issuer --enable-workload-identity --name $AKSCLUSTER --resource-group $RESOURCE_GROUP
+
+export AKS_OIDC_ISSUER="$(az aks show -n $AKSCLUSTER -g $RESOURCE_GROUP --query "oidcIssuerProfile.issuerUrl" -otsv)"
+echo $AKS_OIDC_ISSUER
+
+# create a user assigned managed identity. This identity will be used by a service account in the cluster.
+USER_ASSIGNED_IDENTITY_NAME=uid-$APPNAME-$UNIQUEID
+
+az identity create --name "${USER_ASSIGNED_IDENTITY_NAME}" --resource-group "${RESOURCE_GROUP}" --location "${LOCATION}"
+
+az identity show --resource-group "${RESOURCE_GROUP}" --name "${USER_ASSIGNED_IDENTITY_NAME}"
+USER_ASSIGNED_CLIENT_ID="$(az identity show --resource-group "${RESOURCE_GROUP}" --name "${USER_ASSIGNED_IDENTITY_NAME}" --query 'clientId' -otsv)"
+echo $USER_ASSIGNED_CLIENT_ID
+
+# Set KV policy to allow it get permissions on secrets, keys and certificates.
+az keyvault set-policy -g $RESOURCE_GROUP -n $KEYVAULT_NAME --key-permissions get --spn $USER_ASSIGNED_CLIENT_ID
+az keyvault set-policy -g $RESOURCE_GROUP -n $KEYVAULT_NAME --secret-permissions get --spn $USER_ASSIGNED_CLIENT_ID
+az keyvault set-policy -g $RESOURCE_GROUP -n $KEYVAULT_NAME --certificate-permissions get --spn $USER_ASSIGNED_CLIENT_ID
+
+# In the cluster create a service account that uses this identity. You create this service account in the spring-petclinic namespace, so it can be used by the pods in this namespace.
+SERVICE_ACCOUNT_NAME="workload-identity-sa"
+   
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    azure.workload.identity/client-id: "${USER_ASSIGNED_CLIENT_ID}"
+  name: "${SERVICE_ACCOUNT_NAME}"
+  namespace: "${NAMESPACE}"
+EOF
+
+# last step create the federated identity credential between the managed identity, the service account issuer, and the subject
+FEDERATED_IDENTITY_CREDENTIAL_NAME=fedid-$APPNAME-$UNIQUEID
+az identity federated-credential create --name ${FEDERATED_IDENTITY_CREDENTIAL_NAME} --identity-name "${USER_ASSIGNED_IDENTITY_NAME}" --resource-group "${RESOURCE_GROUP}" --issuer "${AKS_OIDC_ISSUER}" --subject system:serviceaccount:"${NAMESPACE}":"${SERVICE_ACCOUNT_NAME}" --audience api://AzureADTokenExchange
+

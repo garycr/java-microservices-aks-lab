@@ -1,0 +1,28 @@
+# Lab files
+GitHub: https://github.com/Azure-Samples/java-microservices-aks-lab/tree/main
+https://azure-samples.github.io/java-microservices-aks-lab/
+
+# Saved variables
+UNIQUEID=953007
+APPNAME=petclinic
+RESOURCE_GROUP=rg-petclinic-953007
+LOCATION=eastus
+AKSCLUSTER=aks-petclinic-953007
+MYACR=acrpetclinic953007
+VIRTUAL_NETWORK_NAME=vnet-petclinic-953007
+VERSION=3.0.2
+NAMESPACE=spring-petclinic
+
+# Database details
+{
+  "connectionString": "mysql flexibleserverdb --host mysql-petclinic-953007.mysql.database.azure.com --user myadmin --password=mysql_pwd_alpha1",
+  "databaseName": "flexibleserverdb",
+  "host": "mysql-petclinic-953007.mysql.database.azure.com",
+  "id": "/subscriptions/d24fa0c8-c389-44ff-80a5-8f2ee4a9787f/resourceGroups/rg-petclinic-953007/providers/Microsoft.DBforMySQL/flexibleServers/mysql-petclinic-953007",
+  "location": "East US",
+  "password": "mysql_pwd_alpha1",
+  "resourceGroup": "rg-petclinic-953007",
+  "skuname": "Standard_B1ms",
+  "username": "myadmin",
+  "version": "5.7"
+}

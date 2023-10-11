@@ -1,0 +1,29 @@
+# Login to Azure
+az login 
+az account set --subscription d24fa0c8-c389-44ff-80a5-8f2ee4a9787f
+
+# Create default variables and the solution resource group
+UNIQUEID=$(openssl rand -hex 3)
+APPNAME=petclinic
+RESOURCE_GROUP=rg-$APPNAME-$UNIQUEID
+LOCATION=eastus
+az group create -g $RESOURCE_GROUP -l $LOCATION
+
+MYACR=acr$APPNAME$UNIQUEID
+az acr create -n $MYACR -g $RESOURCE_GROUP  --sku Basic
+
+# Create a virtual network and subnet for your AKS cluster
+VIRTUAL_NETWORK_NAME=vnet-$APPNAME-$UNIQUEID
+az network vnet create  --resource-group $RESOURCE_GROUP  --name $VIRTUAL_NETWORK_NAME --location $LOCATION  --address-prefix 10.1.0.0/16
+   
+AKS_SUBNET_CIDR=10.1.0.0/24
+az network vnet subnet create  --resource-group $RESOURCE_GROUP --vnet-name $VIRTUAL_NETWORK_NAME --address-prefixes $AKS_SUBNET_CIDR --name aks-subnet 
+
+# You will need to ID of the subnet when you create the AKS cluster
+SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP --vnet-name $VIRTUAL_NETWORK_NAME --name aks-subnet --query id -o tsv)
+
+# Create the AKS cluster, attach the ACR and subnet
+AKSCLUSTER=aks-$APPNAME-$UNIQUEID
+az aks create -n $AKSCLUSTER -g $RESOURCE_GROUP --location $LOCATION --generate-ssh-keys --attach-acr $MYACR --vnet-subnet-id $SUBNET_ID
+# on error --vnet-subnet-id is not a valid Azure resource ID. run the command in the portal cloud shell
+

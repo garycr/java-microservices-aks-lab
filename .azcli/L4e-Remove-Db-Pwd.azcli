@@ -1,0 +1,87 @@
+# allow the user assigned managed identity access to the database
+DB_ADMIN_USER_ASSIGNED_IDENTITY_NAME=uid-dbadmin-$APPNAME-$UNIQUEID
+az identity create --name "${DB_ADMIN_USER_ASSIGNED_IDENTITY_NAME}" --resource-group "${RESOURCE_GROUP}" --location "${LOCATION}"
+
+# Assign to the Db
+az mysql flexible-server identity assign --resource-group $RESOURCE_GROUP --server-name $MYSQL_SERVER_NAME  --identity $DB_ADMIN_USER_ASSIGNED_IDENTITY_NAME
+
+# Get the current logged in user and object ID. This will give you the info of the user account you are currently logged in with in the Azure CLI.
+CURRENT_USER=$(az account show --query user.name --output tsv)
+echo $CURRENT_USER
+CURRENT_USER_OBJECTID=$(az ad signed-in-user show --query id --output tsv)
+echo $CURRENT_USER_OBJECTID
+
+# create a database administrator based on your current user account
+az mysql flexible-server ad-admin create --resource-group $RESOURCE_GROUP --server-name $MYSQL_SERVER_NAME --object-id $CURRENT_USER_OBJECTID --display-name $CURRENT_USER --identity $DB_ADMIN_USER_ASSIGNED_IDENTITY_NAME
+
+# create a sql file for creating a database user for the user assigned managed identity you created earlier for usage in the spring-petclinic namespace of the cluster
+IDENTITY_LOGIN_NAME="mysql_conn"
+   
+cat <<EOF >createuser.sql
+SET aad_auth_validate_oids_in_tenant = OFF;
+DROP USER IF EXISTS '${IDENTITY_LOGIN_NAME}'@'%';
+CREATE AADUSER '${IDENTITY_LOGIN_NAME}' IDENTIFIED BY '${USER_ASSIGNED_CLIENT_ID}';
+GRANT ALL PRIVILEGES ON ${DATABASE_NAME}.* TO '${IDENTITY_LOGIN_NAME}'@'%';
+FLUSH privileges;
+EOF
+
+# Get an access token for the database and execute the sql script with this access token.
+RDBMS_ACCESS_TOKEN=$(az account get-access-token --resource-type oss-rdbms --query accessToken --output tsv) 
+echo $RDBMS_ACCESS_TOKEN
+   
+az mysql flexible-server execute --name ${MYSQL_SERVER_NAME} --admin-user ${CURRENT_USER} --admin-password ${RDBMS_ACCESS_TOKEN} --file-path "createuser.sql"   
+
+# Follow the lab instructions to make updates to the various pom.xml files
+    <dependency>
+       <groupId>com.azure.spring</groupId>
+       <artifactId>spring-cloud-azure-starter-jdbc-mysql</artifactId>
+    </dependency>
+
+# With these changes done. Make sure you are in the /src folder and rebuild the project
+cd ..
+mvn clean package -DskipTests
+
+# Once the build is done, move to the staging-acr directory and recreate the container images for customers, visits and vets.
+cd staging-acr
+
+rm spring-petclinic-customers-service-$VERSION.jar
+rm spring-petclinic-visits-service-$VERSION.jar
+rm spring-petclinic-vets-service-$VERSION.jar
+cp ../spring-petclinic-customers-service/target/spring-petclinic-customers-service-$VERSION.jar spring-petclinic-customers-service-$VERSION.jar
+cp ../spring-petclinic-visits-service/target/spring-petclinic-visits-service-$VERSION.jar spring-petclinic-visits-service-$VERSION.jar
+cp ../spring-petclinic-vets-service/target/spring-petclinic-vets-service-$VERSION.jar spring-petclinic-vets-service-$VERSION.jar
+   
+docker build -t $MYACR.azurecr.io/spring-petclinic-customers-service:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-customers-service-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+docker push $MYACR.azurecr.io/spring-petclinic-customers-service:$VERSION
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-visits-service:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-visits-service-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+docker push $MYACR.azurecr.io/spring-petclinic-visits-service:$VERSION
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-vets-service:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-vets-service-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+docker push $MYACR.azurecr.io/spring-petclinic-vets-service:$VERSION
+
+# Make the change to the application.yml file in the config repository
+
+# update the spring-petclinic-customers-service.yml, spring-petclinic-visits-service.yml and spring-petclinic-vets-service.yml files in the kubernetes folder
+cd ../kubernetes
+
+curl -o spring-petclinic-customers-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/04_lab_secrets/spring-petclinic-customers-service.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-customers-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-customers-service.yml  
+
+curl -o spring-petclinic-visits-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/04_lab_secrets/spring-petclinic-visits-service.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-visits-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-visits-service.yml
+
+curl -o spring-petclinic-vets-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/04_lab_secrets/spring-petclinic-vets-service.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-vets-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-vets-service.yml
+
+# Reapply these 3 YAML configurations
+kubectl apply -f spring-petclinic-customers-service.yml 
+kubectl apply -f spring-petclinic-vets-service.yml 
+kubectl apply -f spring-petclinic-visits-service.yml 
+   
+kubectl get pods -w
+
+kubectl logs <pod-name>

@@ -1,0 +1,10 @@
+# Check that the public IPs were created
+kubectl get services -n spring-petclinic
+
+# Using the external ip of the admin-server to test
+http://52.224.16.88:8080
+http://52.224.16.88:8080/actuator/health 
+# Common errors
+# Admin server times out
+# ??
+

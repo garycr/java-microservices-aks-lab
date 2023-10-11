@@ -1,0 +1,83 @@
+# The az aks get-credentials command will populate your kubeconfig file
+az aks get-credentials -n $AKSCLUSTER -g $RESOURCE_GROUP
+
+# verify that you can successfully connect to the cluster
+# In case the kubectl statement isn’t available for you, you can install it with 
+sudo az aks install-cli
+kubectl get pods --all-namespaces
+
+# create a namespace in the cluster for your spring petclinic microservices
+NAMESPACE=spring-petclinic
+kubectl create ns $NAMESPACE
+
+# On your local filesystem create a kubernetes directory in the root of the project and navigate to it
+cd ..
+mkdir kubernetes
+cd kubernetes
+
+# In this directory create a file named config-map.yml with the below code and save the file
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-server
+data:
+  # property-like keys; each key maps to a simple value
+  CONFIG_SERVER_URL: "http://config-server:8888"
+
+# apply the ConfigMap in the AKS cluster
+kubectl create -f config-map.yml --namespace spring-petclinic
+
+# list the config maps to verify
+kubectl get configmap -n spring-petclinic
+kubectl describe configmap config-server -n spring-petclinic
+
+# In the kubernetes folder copy the contents of the spring-petclinic-api-gateway.yml file
+curl -o spring-petclinic-api-gateway.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/02_lab_migrate/spring-petclinic-api-gateway.yml
+
+# This file uses a replacement value for the image. This will be different for your specific container registry. Use sed to replace this value.
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-api-gateway:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-api-gateway.yml
+
+# Do the rest
+curl -o spring-petclinic-admin-server.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/02_lab_migrate/spring-petclinic-admin-server.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-admin-server:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-admin-server.yml
+
+curl -o spring-petclinic-customers-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/02_lab_migrate/spring-petclinic-customers-service.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-customers-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-customers-service.yml
+
+curl -o spring-petclinic-visits-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/02_lab_migrate/spring-petclinic-visits-service.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-visits-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-visits-service.yml
+
+curl -o spring-petclinic-vets-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/02_lab_migrate/spring-petclinic-vets-service.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-vets-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-vets-service.yml
+
+curl -o spring-petclinic-config-server.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/02_lab_migrate/spring-petclinic-config-server.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-config-server:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-config-server.yml
+
+curl -o spring-petclinic-discovery-server.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/02_lab_migrate/spring-petclinic-discovery-server.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-discovery-server:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-discovery-server.yml
+
+# now use each of the yaml files to deploy your microservices to your AKS cluster
+kubectl config set-context --current --namespace=$NAMESPACE
+kubectl apply -f spring-petclinic-config-server.yml 
+kubectl get pods -w
+
+# Once the config-server is properly up and running, escape out of the pod watch statement with Ctrl+Q. Now in the same way deploy the discovery-server
+kubectl apply -f spring-petclinic-discovery-server.yml
+kubectl get pods -w
+
+# Once the discovery-server is properly up and running, escape out of the pod watch statement with Ctrl+Q. Now in the same way deploy the rest of the microservices
+kubectl apply -f spring-petclinic-customers-service.yml
+kubectl apply -f spring-petclinic-visits-service.yml
+kubectl apply -f spring-petclinic-vets-service.yml
+kubectl apply -f spring-petclinic-api-gateway.yml
+kubectl apply -f spring-petclinic-admin-server.yml
+
+# now double check whether all pods got created correctly
+kubectl get pods

@@ -1,0 +1,55 @@
+# In case any of the pods are not reporting a Running status, you can inspect their configuration and events with a describe.
+kubectl describe pod <name-of-the-pod> -n spring-petclinic
+
+# In case of errors, you can also inspect the pods logs
+kubectl logs admin-server-6fbd5dcd57-6b2gc       -n spring-petclinic
+kubectl logs config-server-76686fdbf5-65jlr  -n spring-petclinic
+kubectl logs discovery-server-8654c86cf7-frrjs -n spring-petclinic
+kubectl logs vets-service-f98d7c4b9-bxg4l   -n spring-petclinic
+
+# In case you need to restart one of the pods, you can delete it and it will start up again automatically.
+kubectl delete pod config-server-76686fdbf5-65jlr 
+kubectl delete pod discovery-server-8654c86cf7-frrjs   
+kubectl delete pod api-gateway-c6985df7f-g5tnz     
+kubectl delete pod admin-server-6fbd5dcd57-6b2gc    
+kubectl delete pod customers-service-846ccfb6fc-ts94m 
+kubectl delete pod vets-service-f98d7c4b9-bxg4l
+kubectl delete pod visits-service-64b89b6477-c5vkc 
+
+# Rebuild a single service
+mvn clean package -DskipTests -rf :spring-petclinic-config-server
+
+cd staging-acr
+rm spring-petclinic-config-server-$VERSION.jar
+ls -l
+cp ../spring-petclinic-config-server/target/spring-petclinic-config-server-$VERSION.jar spring-petclinic-config-server-$VERSION.jar
+ls -l
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-config-server:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-config-server-$VERSION.jar --build-arg APP_PORT=8888  --build-arg AI_JAR=ai.jar .
+
+az acr login --name $MYACR
+docker push $MYACR.azurecr.io/spring-petclinic-config-server:$VERSION
+
+kubectl get pods
+kubectl delete pod config-server-58cdd47d89-gr444  
+kubectl delete pod discovery-server-85ccb4ff5b-kxnlg 
+
+
+# Access the database for troubleshooting
+# For the MySQL Flexible Server connection to work, you will need to have your local IP address added to the MySQL Flexible Server firewall.
+# If running locally (not cloud shell) you will need to go to the MySQL database and add grant your local network ip access
+az mysql flexible-server connect -n $MYSQL_SERVER_NAME -u myadmin -p $MYSQL_ADMIN_PASSWORD --interactive
+show databases;
+use petclinic;
+show tables;
+select * from owners;
+
+# Config server 
+# Caused by: org.eclipse.jgit.api.errors.TransportException: https://github.com/garycr/spring-petclinic-microservices-config: not authorized
+# Errors most often caused by issue accessing the GitHub configuration repo
+# Issue could arise because the PAT is either not accessible or has been compromised and GitHub deletes the token
+
+
+# Get Environment variables for a pod
+kubectl exec -it vets-service-f98d7c4b9-bxg4l  -n spring-petclinic -- env 
+kubectl exec -it config-server-76686fdbf5-65jlr  -n spring-petclinic -- env 

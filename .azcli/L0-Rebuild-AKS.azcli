@@ -1,0 +1,155 @@
+# Rebuild AKS after lab 4 
+# This is done when the Spring Boot application does not respond
+
+
+############## Setup ################################
+# Step 1. Rerun all the script variables
+UNIQUEID=953007
+APPNAME=petclinic
+RESOURCE_GROUP=rg-petclinic-953007
+LOCATION=eastus
+AKSCLUSTER=aks-petclinic-953007
+MYACR=acrpetclinic953007
+VIRTUAL_NETWORK_NAME=vnet-petclinic-953007
+VERSION=3.0.2
+NAMESPACE=spring-petclinic
+
+################### Delete #############################
+# Step 2 Delete the AKS cluster
+az aks delete -n $AKSCLUSTER -g $RESOURCE_GROUP
+
+# Step 3 Delete the AKS VNET
+VIRTUAL_NETWORK_NAME=vnet-$APPNAME-$UNIQUEID
+az network vnet delete --resource-group $RESOURCE_GROUP  --name $VIRTUAL_NETWORK_NAME 
+
+
+################### Rebuild #############################
+# Step 4 rebuild the AKS cluster
+
+# Create a virtual network and subnet for your AKS cluster
+az network vnet create  --resource-group $RESOURCE_GROUP  --name $VIRTUAL_NETWORK_NAME --location $LOCATION  --address-prefix 10.1.0.0/16
+   
+AKS_SUBNET_CIDR=10.1.0.0/24
+az network vnet subnet create  --resource-group $RESOURCE_GROUP --vnet-name $VIRTUAL_NETWORK_NAME --address-prefixes $AKS_SUBNET_CIDR --name aks-subnet 
+
+# You will need to ID of the subnet when you create the AKS cluster
+SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP --vnet-name $VIRTUAL_NETWORK_NAME --name aks-subnet --query id -o tsv)
+
+# Create the AKS cluster, attach the ACR and subnet
+AKSCLUSTER=aks-$APPNAME-$UNIQUEID
+az aks create -n $AKSCLUSTER -g $RESOURCE_GROUP --location $LOCATION --generate-ssh-keys --attach-acr $MYACR --vnet-subnet-id $SUBNET_ID
+
+# The az aks get-credentials command will populate your kubeconfig file
+az aks get-credentials -n $AKSCLUSTER -g $RESOURCE_GROUP
+
+NAMESPACE=spring-petclinic
+kubectl create ns $NAMESPACE
+
+# apply the ConfigMap in the AKS cluster
+cd src/kubernetes
+kubectl create -f config-map.yml --namespace spring-petclinic
+
+# Step 5 add the monitoring
+
+# Add the Container Insights add-on to your AKS cluster
+WORKSPACE=la-$APPNAME-$UNIQUEID
+WORKSPACEID=$(az monitor log-analytics workspace show -n $WORKSPACE -g $RESOURCE_GROUP --query id -o tsv)
+az aks enable-addons -a monitoring -n $AKSCLUSTER -g $RESOURCE_GROUP --workspace-resource-id $WORKSPACEID
+
+# verify whether the monitoring agent got deployed correctly
+kubectl get ds ama-logs --namespace=kube-system
+
+# Step 6 Add workloads and secrets
+
+KEYVAULT_NAME=kv-$APPNAME-$UNIQUEID
+
+# enable OIDC (Open ID Connect) issuer and workload identity on the cluster
+az aks update --enable-oidc-issuer --enable-workload-identity --name $AKSCLUSTER --resource-group $RESOURCE_GROUP
+
+export AKS_OIDC_ISSUER="$(az aks show -n $AKSCLUSTER -g $RESOURCE_GROUP --query "oidcIssuerProfile.issuerUrl" -otsv)"
+
+# create a user assigned managed identity. This identity will be used by a service account in the cluster.
+USER_ASSIGNED_IDENTITY_NAME=uid-$APPNAME-$UNIQUEID
+USER_ASSIGNED_CLIENT_ID="$(az identity show --resource-group "${RESOURCE_GROUP}" --name "${USER_ASSIGNED_IDENTITY_NAME}" --query 'clientId' -otsv)"
+
+# In the cluster create a service account that uses this identity. You create this service account in the spring-petclinic namespace, so it can be used by the pods in this namespace.
+SERVICE_ACCOUNT_NAME="workload-identity-sa"
+
+# varify variable tokens exist prior to applying service account to AKS
+echo $SERVICE_ACCOUNT_NAME
+echo $NAMESPACE
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    azure.workload.identity/client-id: "${USER_ASSIGNED_CLIENT_ID}"
+  name: "${SERVICE_ACCOUNT_NAME}"
+  namespace: "${NAMESPACE}"
+EOF
+
+
+# Create the federated identity credential between the managed identity, the service account issuer, and the subject
+FEDERATED_IDENTITY_CREDENTIAL_NAME=fedid-$APPNAME-$UNIQUEID
+az identity federated-credential create --name ${FEDERATED_IDENTITY_CREDENTIAL_NAME} --identity-name "${USER_ASSIGNED_IDENTITY_NAME}" --resource-group "${RESOURCE_GROUP}" --issuer "${AKS_OIDC_ISSUER}" --subject system:serviceaccount:"${NAMESPACE}":"${SERVICE_ACCOUNT_NAME}" --audience api://AzureADTokenExchange
+
+
+#  install the CSI driver add-on on your AKS cluster
+az aks enable-addons --addons azure-keyvault-secrets-provider --name $AKSCLUSTER --resource-group $RESOURCE_GROUP
+
+ADTENANT=$(az account show --query tenantId --output tsv)
+
+# verify the variables exist prior to running script
+echo $USER_ASSIGNED_CLIENT_ID 
+echo $KEYVAULT_NAME
+echo $ADTENANT
+
+cat <<EOF | kubectl apply -n spring-petclinic -f -
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: azure-kvname-user-msi
+spec:
+  provider: azure
+  secretObjects:
+  - secretName: gitpatsecret
+    type: Opaque
+    data: 
+    - objectName: gitpat
+      key: gitpat
+  parameters:
+    usePodIdentity: "false"
+    useVMManagedIdentity: "false" 
+    clientID: $USER_ASSIGNED_CLIENT_ID 
+    keyvaultName: $KEYVAULT_NAME
+    cloudName: "" 
+    objects: |
+      array: 
+        - |
+          objectName: GIT-PAT
+          objectType: secret   
+          objectAlias: gitpat          
+          objectVersion: ""  
+    tenantId: $ADTENANT
+EOF
+
+# Re-apply all of the YAML files, starting with the config server
+kubectl config set-context --current --namespace=$NAMESPACE
+kubectl apply -f spring-petclinic-config-server.yml 
+kubectl get pods
+kubectl logs config-server-76686fdbf5-sjmfl -n spring-petclinic
+
+# Now in the same way deploy the discovery-server
+kubectl apply -f spring-petclinic-discovery-server.yml
+kubectl get pods -w
+
+# Apply the rest
+kubectl apply -f spring-petclinic-customers-service.yml
+kubectl apply -f spring-petclinic-visits-service.yml
+kubectl apply -f spring-petclinic-vets-service.yml
+kubectl get pods -w
+
+kubectl apply -f spring-petclinic-api-gateway.yml
+kubectl apply -f spring-petclinic-admin-server.yml
+kubectl get pods -w

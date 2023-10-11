@@ -1,0 +1,111 @@
+# create a Log Analytics workspace
+WORKSPACE=la-$APPNAME-$UNIQUEID
+az monitor log-analytics workspace create --resource-group $RESOURCE_GROUP --workspace-name $WORKSPACE
+
+# Add the Container Insights add-on to your AKS cluster
+WORKSPACEID=$(az monitor log-analytics workspace show -n $WORKSPACE -g $RESOURCE_GROUP --query id -o tsv)
+az aks enable-addons -a monitoring -n $AKSCLUSTER -g $RESOURCE_GROUP --workspace-resource-id $WORKSPACEID
+
+# verify whether the monitoring agent got deployed correctly
+# verify that monitoring data is available in your Log Analytics workspace, in your browser, navigate to your AKS cluster in the Azure Portal. Select Insights
+kubectl get ds ama-logs --namespace=kube-system
+
+# create an Application Insights resource
+AINAME=ai-$APPNAME-$UNIQUEID
+az extension add -n application-insights
+az monitor app-insights component create --app $AINAME --location $LOCATION --kind web -g $RESOURCE_GROUP --workspace $WORKSPACEID
+
+# download the latest application insights agent
+cd ../staging-acr
+wget https://github.com/microsoft/ApplicationInsights-Java/releases/download/3.4.12/applicationinsights-agent-3.4.12.jar
+cp applicationinsights-agent-3.4.12.jar ai.jar
+
+# Make sure that the latest jar files for each microservice exist in the staging-acr folder
+cp ../spring-petclinic-api-gateway/target/spring-petclinic-api-gateway-$VERSION.jar spring-petclinic-api-gateway-$VERSION.jar
+cp ../spring-petclinic-admin-server/target/spring-petclinic-admin-server-$VERSION.jar spring-petclinic-admin-server-$VERSION.jar
+cp ../spring-petclinic-customers-service/target/spring-petclinic-customers-service-$VERSION.jar spring-petclinic-customers-service-$VERSION.jar
+cp ../spring-petclinic-visits-service/target/spring-petclinic-visits-service-$VERSION.jar spring-petclinic-visits-service-$VERSION.jar
+cp ../spring-petclinic-vets-service/target/spring-petclinic-vets-service-$VERSION.jar spring-petclinic-vets-service-$VERSION.jar
+cp ../spring-petclinic-config-server/target/spring-petclinic-config-server-$VERSION.jar spring-petclinic-config-server-$VERSION.jar
+cp ../spring-petclinic-discovery-server/target/spring-petclinic-discovery-server-$VERSION.jar spring-petclinic-discovery-server-$VERSION.jar
+
+# Update Docker file to include Ai.jar - see lab instructions
+
+# build and push
+az acr login --name $MYACR
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-api-gateway:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-api-gateway-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .   
+docker push $MYACR.azurecr.io/spring-petclinic-api-gateway:$VERSION
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-admin-server:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-admin-server-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+docker push $MYACR.azurecr.io/spring-petclinic-admin-server:$VERSION
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-customers-service:$VERSION  --build-arg ARTIFACT_NAME=spring-petclinic-customers-service-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+docker push $MYACR.azurecr.io/spring-petclinic-customers-service:$VERSION
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-visits-service:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-visits-service-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+docker push $MYACR.azurecr.io/spring-petclinic-visits-service:$VERSION
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-vets-service:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-vets-service-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+docker push $MYACR.azurecr.io/spring-petclinic-vets-service:$VERSION
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-config-server:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-config-server-$VERSION.jar --build-arg APP_PORT=8888 --build-arg AI_JAR=ai.jar .
+docker push $MYACR.azurecr.io/spring-petclinic-config-server:$VERSION
+
+docker build -t $MYACR.azurecr.io/spring-petclinic-discovery-server:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-discovery-server-$VERSION.jar --build-arg APP_PORT=8761 --build-arg AI_JAR=ai.jar .
+docker push $MYACR.azurecr.io/spring-petclinic-discovery-server:$VERSION
+
+# update the config map with an extra environment variable with the connection string info to your Application Insights instance
+AI_CONNECTIONSTRING=$(az monitor app-insights component show --app $AINAME -g $RESOURCE_GROUP --query connectionString)
+
+# Navigate to the kubernetes directory and update your config-map.yml
+cd ../kubernetes
+
+# See Lab manual for updates to the config-map.yml
+
+# re-apply the config-map.yml file
+kubectl replace -f config-map.yml --namespace spring-petclinic
+
+# Add environment variable to all the config files
+curl -o spring-petclinic-api-gateway.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/03_lab_monitor/spring-petclinic-api-gateway.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-api-gateway:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-api-gateway.yml
+
+curl -o spring-petclinic-admin-server.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/03_lab_monitor/spring-petclinic-admin-server.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-admin-server:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-admin-server.yml  
+   
+curl -o spring-petclinic-customers-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/03_lab_monitor/spring-petclinic-customers-service.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-customers-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-customers-service.yml  
+
+curl -o spring-petclinic-visits-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/03_lab_monitor/spring-petclinic-visits-service.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-visits-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-visits-service.yml
+
+curl -o spring-petclinic-vets-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/03_lab_monitor/spring-petclinic-vets-service.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-vets-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-vets-service.yml
+
+curl -o spring-petclinic-config-server.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/03_lab_monitor/spring-petclinic-config-server.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-config-server:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-config-server.yml
+
+curl -o spring-petclinic-discovery-server.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/03_lab_monitor/spring-petclinic-discovery-server.yml
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-discovery-server:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-discovery-server.yml
+
+# Re-apply all of the YAML files, starting with the config server
+kubectl apply -f spring-petclinic-config-server.yml 
+kubectl get pods -w
+
+# Now in the same way deploy the discovery-server
+kubectl apply -f spring-petclinic-discovery-server.yml
+kubectl get pods -w
+
+# Apply the rest
+kubectl apply -f spring-petclinic-customers-service.yml
+kubectl apply -f spring-petclinic-visits-service.yml
+kubectl apply -f spring-petclinic-vets-service.yml
+kubectl apply -f spring-petclinic-api-gateway.yml
+kubectl apply -f spring-petclinic-admin-server.yml

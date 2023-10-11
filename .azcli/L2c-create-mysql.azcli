@@ -1,0 +1,26 @@
+MYSQL_SERVER_NAME=mysql-$APPNAME-$UNIQUEID
+MYSQL_ADMIN_USERNAME=myadmin
+MYSQL_ADMIN_PASSWORD=mysql_pwd_alpha1
+DATABASE_NAME=petclinic
+      
+# Create the server
+nnaz mysql flexible-server create --admin-user myadmin --admin-password ${MYSQL_ADMIN_PASSWORD} --name ${MYSQL_SERVER_NAME} --resource-group ${RESOURCE_GROUP} 
+
+# Record the connection string
+# Update the application.yml file in the configuration repo with the value for the server and password
+ "connectionString": "mysql flexibleserverdb --host mysql-petclinic-953007.mysql.database.azure.com --user myadmin --password=mysql_pwd_alpha1"
+
+# create a database in the Azure Database for MySQL Flexible Server instance.
+ az mysql flexible-server db create --server-name $MYSQL_SERVER_NAME --resource-group $RESOURCE_GROUP -d $DATABASE_NAME
+
+# Allow connections to the server from the AKS cluster. For now, to accomplish this, you will create a server firewall rule to allow inbound traffic from all Azure Services
+ az mysql flexible-server firewall-rule create --rule-name allAzureIPs --name ${MYSQL_SERVER_NAME} --resource-group ${RESOURCE_GROUP} --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
+
+# From the Git Bash window, in the config repository you cloned locally, use your favorite text editor to open the application.yml file. Replace the full contents of the application.yml file with the contents of this application.yml file. The updated application.yml file includes the following changes:
+# It removes the default 0 value for the server.port on line 5.
+# It changes the default spring.sql.init values to use mysql configuration on lines 15 to 19.
+# It adds a spring.datasource property for your mysql database on lines 10 to 14.
+# It adds extra eureka config on lines 61 to 66.
+# It removes the chaos-monkey and mysql profiles.
+# In the part you pasted, update the values of the target datasource endpoint on line 12, the corresponding admin user account on line 13, and its password on line 14 to match your configuration. Set these values by using the information in the Azure Database for MySQL Flexible Server connection string you recorded earlier in this task.
+

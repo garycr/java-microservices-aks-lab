@@ -1,0 +1,17 @@
+# Setup the configuration repo
+curl -XGET -H 'authorization: token <your PAT Token from Github>' 'https://api.github.com/repos/garycr/spring-petclinic-microservices-config'
+
+uri: https://github.com/garycr/spring-petclinic-microservices-config
+username: garycr
+password: <your PAT Token from Github>
+
+
+# Change directory to the newly created spring-petclinic-microservices-config folder and run the following commands to copy all the config server configuration yaml files
+cd ../spring-petclinic-microservices-config
+curl -o api-gateway.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/config/api-gateway.yml
+curl -o application.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/config/application.yml
+curl -o customers-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/config/customers-service.yml
+curl -o discovery-server.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/config/discovery-server.yml
+curl -o tracing-server.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/config/tracing-server.yml
+curl -o vets-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/config/vets-service.yml
+curl -o visits-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/config/visits-service.yml

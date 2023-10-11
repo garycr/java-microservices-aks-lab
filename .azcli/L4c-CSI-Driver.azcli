@@ -1,0 +1,5 @@
+#  install the CSI driver add-on on your AKS cluster
+az aks enable-addons --addons azure-keyvault-secrets-provider --name $AKSCLUSTER --resource-group $RESOURCE_GROUP
+
+# notice the extra pods running in AKS
+kubectl get pods -n kube-system
