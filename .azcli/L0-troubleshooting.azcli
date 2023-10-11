@@ -2,19 +2,21 @@
 kubectl describe pod <name-of-the-pod> -n spring-petclinic
 
 # In case of errors, you can also inspect the pods logs
-kubectl logs admin-server-6fbd5dcd57-6b2gc       -n spring-petclinic
-kubectl logs config-server-76686fdbf5-65jlr  -n spring-petclinic
-kubectl logs discovery-server-8654c86cf7-frrjs -n spring-petclinic
-kubectl logs vets-service-f98d7c4b9-bxg4l   -n spring-petclinic
+kubectl logs admin-server-6fbd5dcd57-kwpx6     -n spring-petclinic
+kubectl logs config-server-76686fdbf5-x5lg8    -n spring-petclinic
+kubectl logs discovery-server-8654c86cf7-kb264 -n spring-petclinic
+kubectl logs customers-service-846ccfb6fc-hvlcw   -n spring-petclinic
 
 # In case you need to restart one of the pods, you can delete it and it will start up again automatically.
-kubectl delete pod config-server-76686fdbf5-65jlr 
-kubectl delete pod discovery-server-8654c86cf7-frrjs   
-kubectl delete pod api-gateway-c6985df7f-g5tnz     
-kubectl delete pod admin-server-6fbd5dcd57-6b2gc    
-kubectl delete pod customers-service-846ccfb6fc-ts94m 
-kubectl delete pod vets-service-f98d7c4b9-bxg4l
-kubectl delete pod visits-service-64b89b6477-c5vkc 
+kubectl delete pod config-server-76686fdbf5-sjmfl 
+kubectl delete pod discovery-server-8654c86cf7-kb264   
+
+kubectl delete pod customers-service-846ccfb6fc-r2fz5
+kubectl delete pod vets-service-f98d7c4b9-hsd7w 
+kubectl delete pod visits-service-64b89b6477-w2kgx
+
+kubectl delete pod api-gateway-c6985df7f-dzjdw   
+kubectl delete pod admin-server-6fbd5dcd57-kwpx6    
 
 # Rebuild a single service
 mvn clean package -DskipTests -rf :spring-petclinic-config-server
@@ -49,7 +51,20 @@ select * from owners;
 # Errors most often caused by issue accessing the GitHub configuration repo
 # Issue could arise because the PAT is either not accessible or has been compromised and GitHub deletes the token
 
-
 # Get Environment variables for a pod
-kubectl exec -it vets-service-f98d7c4b9-bxg4l  -n spring-petclinic -- env 
+kubectl exec -it config-server-76686fdbf5-x5lg8  -n spring-petclinic -- env 
 kubectl exec -it config-server-76686fdbf5-65jlr  -n spring-petclinic -- env 
+
+
+# Changing a kubernets secret (e.g. new github PAT)
+# if you have AKS key rotation turned on then it should update on its own, otherwise you need to delete the secret and restart the assocaited pod
+
+#1. check the environment variable
+kubectl exec -it config-server-76686fdbf5-x5lg8   -n spring-petclinic -- env 
+
+#2. assuming it needs to be updated with the new secret get the secret name and then delete it
+kubectl get secrets -n spring-petclinic
+kubectl delete secret <secret name>
+
+#3. restart the pod by deleting it
+kubectl delete pod <your pod name>

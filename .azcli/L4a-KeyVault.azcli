@@ -3,5 +3,5 @@ KEYVAULT_NAME=kv-$APPNAME-$UNIQUEID
 az keyvault create --name $KEYVAULT_NAME --resource-group $RESOURCE_GROUP --location $LOCATION --sku standard
 
 # Add your GitHub PAT token as a secret in Key Vault
-GIT_PAT=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
+GIT_PAT=<your Github PAT>
 az keyvault secret set --name GIT-PAT  --value $GIT_PAT --vault-name $KEYVAULT_NAME
