@@ -1,0 +1,12 @@
+# Create Service Bus namespace
+SERVICEBUS_NAMESPACE=sb-$APPNAME-$UNIQUEID
+az servicebus namespace create --resource-group $RESOURCE_GROUP --name $SERVICEBUS_NAMESPACE --location $LOCATION --sku Premium
+
+# Create a queue in the namespace
+az servicebus queue create --resource-group $RESOURCE_GROUP --namespace-name $SERVICEBUS_NAMESPACE --name visits-requests
+
+# Get the connection string associated with the namespace
+SERVICEBUS_CONNECTIONSTRING=$(az servicebus namespace authorization-rule keys list --resource-group $RESOURCE_GROUP --namespace-name $SERVICEBUS_NAMESPACE --name RootManageSharedAccessKey --query primaryConnectionString --output tsv)
+
+# Create a new KeyVault secret for the connection string
+az keyvault secret set --name SPRING-JMS-SERVICEBUS-CONNECTIONSTRING --value $SERVICEBUS_CONNECTIONSTRING --vault-name $KEYVAULT_NAME

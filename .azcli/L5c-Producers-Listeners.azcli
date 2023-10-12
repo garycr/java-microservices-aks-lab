@@ -1,0 +1,25 @@
+# after making the changes and adding code, build the new service
+cd ..
+mvn clean package -DskipTests -rf :spring-petclinic-visits-service
+
+# navigate to the staging-acr directory, copy the jar file of the visit-service and rebuild the container
+cd staging-acr
+rm spring-petclinic-visits-service-$VERSION.jar
+   
+cp ../spring-petclinic-visits-service/target/spring-petclinic-visits-service-$VERSION.jar spring-petclinic-visits-service-$VERSION.jar
+docker build -t $MYACR.azurecr.io/spring-petclinic-visits-service:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-visits-service-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+
+docker push $MYACR.azurecr.io/spring-petclinic-visits-service:$VERSION
+
+# Replace the yml file in the kubernetes folder and update (see instructions for updates)
+cd ../kubernetes
+curl -o spring-petclinic-visits-service.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/05_lab_messaging/spring-petclinic-visits-service.yml
+
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-visits-service:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-visits-service.yml
+
+# reapply the yml file
+kubectl apply -f spring-petclinic-visits-service.yml
+kubectl get pods -w
+
+# test per the instructions

@@ -1,0 +1,83 @@
+# After changing the default Pom.xml file to include a reference to the messaging emulator
+
+# build the emulator
+cd ..
+mvn clean package -DskipTests -rf :spring-petclinic-messaging-emulator
+
+# Copy over the new jar file
+cd staging-acr
+   
+cp ../spring-petclinic-messaging-emulator/target/spring-petclinic-messaging-emulator-$VERSION.jar spring-petclinic-messaging-emulator-$VERSION.jar
+
+echo $MYACR   
+docker build -t $MYACR.azurecr.io/spring-petclinic-messaging-emulator:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-messaging-emulator-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+az acr login --name $MYACR
+docker push $MYACR.azurecr.io/spring-petclinic-messaging-emulator:$VERSION
+
+USER_ASSIGNED_IDENTITY_NAME=uid-$APPNAME-$UNIQUEID
+USER_ASSIGNED_CLIENT_ID="$(az identity show --resource-group "${RESOURCE_GROUP}" --name "${USER_ASSIGNED_IDENTITY_NAME}" --query 'clientId' -otsv)"
+echo $USER_ASSIGNED_CLIENT_ID
+
+KEYVAULT_NAME=kv-$APPNAME-$UNIQUEID
+echo $KEYVAULT_NAME
+
+ADTENANT=$(az account show --query tenantId --output tsv)
+echo $ADTENANT
+
+# add a mapping for the SPRING-JMS-SERVICEBUS-CONNECTION-STRING secret in Key Vault in the SecretProviderClass. You can update the SecretProviderClass with the following bash statement
+cat <<EOF | kubectl apply -n spring-petclinic -f -
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: azure-kvname-user-msi
+spec:
+  provider: azure
+  secretObjects:
+  - secretName: gitpatsecret
+    type: Opaque
+    data: 
+    - objectName: gitpat
+      key: gitpat
+  - secretName: sbsecret
+    type: Opaque
+    data: 
+    - objectName: sbconn
+      key: sbconn
+  parameters:
+    usePodIdentity: "false"
+    useVMManagedIdentity: "false" 
+    clientID: $USER_ASSIGNED_CLIENT_ID 
+    keyvaultName: $KEYVAULT_NAME
+    cloudName: "" 
+    objects: |
+      array:
+        - |
+          objectName: SPRING-JMS-SERVICEBUS-CONNECTIONSTRING
+          objectType: secret   
+          objectAlias: sbconn       
+          objectVersion: ""  
+        - |
+          objectName: GIT-PAT
+          objectType: secret   
+          objectAlias: gitpat          
+          objectVersion: ""  
+    tenantId: $ADTENANT
+EOF
+
+# After creating a new yml file for the emulator from the instructions update with the following
+cd ../kubernetes
+curl -o spring-petclinic-messaging-emulator.yml https://raw.githubusercontent.com/Azure-Samples/java-microservices-aks-lab/main/docs/05_lab_messaging/spring-petclinic-messaging-emulator.yml
+
+IMAGE=${MYACR}.azurecr.io/spring-petclinic-messaging-emulator:$VERSION
+sed -i "s|#image#|$IMAGE|g" spring-petclinic-messaging-emulator.yml
+
+# Apply the spring-petclinic-messaging-emulator.yml yaml file on the cluster
+kubectl apply -f spring-petclinic-messaging-emulator.yml
+
+# check that the secret was created
+kubectl get secrets
+
+# get the public ip of the service
+kubectl get services
+
+# run the emulator from the instructions
