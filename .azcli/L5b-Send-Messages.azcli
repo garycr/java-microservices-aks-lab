@@ -75,7 +75,7 @@ sed -i "s|#image#|$IMAGE|g" spring-petclinic-messaging-emulator.yml
 kubectl apply -f spring-petclinic-messaging-emulator.yml
 
 # check that the secret was created
-kubectl get secrets
+kubectl get secrets -n spring-petclinic
 
 # get the public ip of the service
 kubectl get services

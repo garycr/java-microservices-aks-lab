@@ -105,6 +105,9 @@ echo $USER_ASSIGNED_CLIENT_ID
 echo $KEYVAULT_NAME
 echo $ADTENANT
 
+# set the namespace context so the secrets get set in the right place
+kubectl config set-context --current --namespace=$NAMESPACE
+
 cat <<EOF | kubectl apply -n spring-petclinic -f -
 apiVersion: secrets-store.csi.x-k8s.io/v1
 kind: SecretProviderClass
@@ -118,6 +121,11 @@ spec:
     data: 
     - objectName: gitpat
       key: gitpat
+  - secretName: sbsecret
+    type: Opaque
+    data: 
+    - objectName: sbconn
+      key: sbconn
   parameters:
     usePodIdentity: "false"
     useVMManagedIdentity: "false" 
@@ -125,7 +133,12 @@ spec:
     keyvaultName: $KEYVAULT_NAME
     cloudName: "" 
     objects: |
-      array: 
+      array:
+        - |
+          objectName: SPRING-JMS-SERVICEBUS-CONNECTIONSTRING
+          objectType: secret   
+          objectAlias: sbconn       
+          objectVersion: ""  
         - |
           objectName: GIT-PAT
           objectType: secret   
@@ -133,6 +146,9 @@ spec:
           objectVersion: ""  
     tenantId: $ADTENANT
 EOF
+
+# check that the secrets were created, you should see two
+kubectl get secrets -n spring-petclinic
 
 # Re-apply all of the YAML files, starting with the config server
 kubectl config set-context --current --namespace=$NAMESPACE
@@ -153,3 +169,6 @@ kubectl get pods -w
 kubectl apply -f spring-petclinic-api-gateway.yml
 kubectl apply -f spring-petclinic-admin-server.yml
 kubectl get pods -w
+
+# [optional] apply the spring-petclinic-messaging-emulator.yml yaml file on the cluster
+kubectl apply -f spring-petclinic-messaging-emulator.yml

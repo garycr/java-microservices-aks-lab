@@ -3,20 +3,25 @@ kubectl describe pod <name-of-the-pod> -n spring-petclinic
 
 # In case of errors, you can also inspect the pods logs
 kubectl logs admin-server-6fbd5dcd57-kwpx6     -n spring-petclinic
-kubectl logs config-server-76686fdbf5-x5lg8    -n spring-petclinic
+kubectl logs api-gateway-c6985df7f-fp7p5      -n spring-petclinic
 kubectl logs discovery-server-8654c86cf7-kb264 -n spring-petclinic
-kubectl logs customers-service-846ccfb6fc-hvlcw   -n spring-petclinic
+kubectl logs config-server-76686fdbf5-r86kg     -n spring-petclinic
 
 # In case you need to restart one of the pods, you can delete it and it will start up again automatically.
-kubectl delete pod config-server-76686fdbf5-sjmfl 
-kubectl delete pod discovery-server-8654c86cf7-kb264   
+kubectl delete pod config-server-76686fdbf5-5775w  
+kubectl get pods -w
+kubectl delete pod discovery-server-8654c86cf7-cvbd5    
+kubectl get pods -w
 
-kubectl delete pod customers-service-846ccfb6fc-r2fz5
-kubectl delete pod vets-service-f98d7c4b9-hsd7w 
-kubectl delete pod visits-service-64b89b6477-w2kgx
 
-kubectl delete pod api-gateway-c6985df7f-dzjdw   
-kubectl delete pod admin-server-6fbd5dcd57-kwpx6    
+kubectl delete pod customers-service-846ccfb6fc-9kv2b
+kubectl delete pod vets-service-f98d7c4b9-z9vv7      
+kubectl delete pod visits-service-786fcdf6f4-w2nfl    
+kubectl get pods -w
+
+kubectl delete pod api-gateway-c6985df7f-b9c65   
+kubectl delete pod admin-server-6fbd5dcd57-l7lpj      
+kubectl get pods -w
 
 # Rebuild a single service
 mvn clean package -DskipTests -rf :spring-petclinic-config-server
@@ -53,7 +58,7 @@ select * from owners;
 
 # Get Environment variables for a pod
 kubectl exec -it config-server-76686fdbf5-x5lg8  -n spring-petclinic -- env 
-kubectl exec -it config-server-76686fdbf5-65jlr  -n spring-petclinic -- env 
+kubectl exec -it visits-service-786fcdf6f4-w2nfl    -n spring-petclinic -- env 
 
 
 # Changing a kubernets secret (e.g. new github PAT)
@@ -64,7 +69,42 @@ kubectl exec -it config-server-76686fdbf5-x5lg8   -n spring-petclinic -- env
 
 #2. assuming it needs to be updated with the new secret get the secret name and then delete it
 kubectl get secrets -n spring-petclinic
-kubectl delete secret <secret name>
+kubectl delete secret gitpatsecret
 
 #3. restart the pod by deleting it
 kubectl delete pod <your pod name>
+
+
+######################## Network Tests #####################################
+https://learn.microsoft.com/en-us/troubleshoot/azure/azure-kubernetes/connection-issues-application-hosted-aks-cluster
+
+# Start a test pod in the cluster:
+kubectl run -it --rm aks-ssh --image=debian:stable
+
+# After the test pod is running, you will gain access to the pod.
+# Then you can run the following commands:
+apt-get update -y && apt-get install dnsutils -y && apt-get install curl -y
+
+# After the packages are installed, test the connectivity to the application pod:
+curl -Iv http://10.0.229.27:8080
+
+curl -Iv http://52.224.201.182:8080
+
+# Load balancer public Ip
+curl -Iv http://4.157.200.173
+
+kubectl get pods -l app=admin-server -o go-template='{{range .items}}{{.status.podIP}}{{"\n"}}{{end}}'
+kubectl get pods -l app=api-gateway -o go-template='{{range .items}}{{.status.podIP}}{{"\n"}}{{end}}'
+
+kubectl get pods -l app=config-server -o go-template='{{range .items}}{{.status.podIP}}{{"\n"}}{{end}}'
+kubectl get pods -l app=discovery-server -o go-template='{{range .items}}{{.status.podIP}}{{"\n"}}{{end}}'
+kubectl get pods -l app=customers-service -o go-template='{{range .items}}{{.status.podIP}}{{"\n"}}{{end}}'
+
+# Environmental Credential is unavailable
+kubectl describe pod admin-server-6fbd5dcd57-kzzd9 -n spring-petclinic
+kubectl describe pod api-gateway-c6985df7f-fp7p5 -n spring-petclinic
+kubectl describe pod config-server-76686fdbf5-r86kg  -n spring-petclinic
+kubectl describe pod customers-service-846ccfb6fc-92cpx  -n spring-petclinic
+kubectl describe pod discovery-server-8654c86cf7-wfm9z   -n spring-petclinic
+kubectl describe pod vets-service-f98d7c4b9-ggvz7 -n spring-petclinic
+kubectl describe pod visits-service-786fcdf6f4-7bp68  -n spring-petclinic

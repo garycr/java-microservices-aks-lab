@@ -1,0 +1,44 @@
+# Create an Event Hub Namespace
+EVENTHUBS_NAMESPACE=evhns-$APPNAME-$UNIQUEID
+echo $EVENTHUBS_NAMESPACE
+
+az eventhubs namespace create --resource-group $RESOURCE_GROUP --name $EVENTHUBS_NAMESPACE --location $LOCATION
+
+# Create an Event Hub
+EVENTHUB_NAME=telemetry
+az eventhubs eventhub create --name $EVENTHUB_NAME --resource-group $RESOURCE_GROUP --namespace-name $EVENTHUBS_NAMESPACE
+
+# Create event hub identity and grant it access to the event hub
+az eventhubs namespace show --name $EVENTHUBS_NAMESPACE --resource-group $RESOURCE_GROUP --query id -o tsv
+   
+EVENTHUB_ID=$(az eventhubs namespace show --name $EVENTHUBS_NAMESPACE --resource-group $RESOURCE_GROUP --query id -o tsv)
+echo $EVENTHUB_ID
+   
+echo $USER_ASSIGNED_CLIENT_ID
+az role assignment create --assignee $USER_ASSIGNED_CLIENT_ID --role 'Azure Event Hubs Data Owner' --scope $EVENTHUB_ID
+
+# Modify files per instructions
+
+# Compile customers service 
+cd ..
+mvn clean package -DskipTests -rf :spring-petclinic-customers-service
+
+# rebuild the container image and push
+cd staging-acr
+cp ../spring-petclinic-customers-service/target/spring-petclinic-customers-service-$VERSION.jar spring-petclinic-customers-service-$VERSION.jar
+   
+echo $VERSION
+docker build -t $MYACR.azurecr.io/spring-petclinic-customers-service:$VERSION --build-arg ARTIFACT_NAME=spring-petclinic-customers-service-$VERSION.jar --build-arg APP_PORT=8080 --build-arg AI_JAR=ai.jar .
+      
+docker push $MYACR.azurecr.io/spring-petclinic-customers-service:$VERSION
+
+# restart the service
+kubectl get pods
+kubectl delete pod customers-service-846ccfb6fc-tdd8f
+   
+kubectl get pods -w
+   
+kubectl logs visits-service-786fcdf6f4-6tkfm    -f
+kubectl exec -it config-server-76686fdbf5-d5z88    -n spring-petclinic -- env 
+
+kubectl delete pod config-server-76686fdbf5-ndrdt 
