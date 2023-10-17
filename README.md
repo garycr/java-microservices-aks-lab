@@ -6,6 +6,7 @@ This lab teaches you how to deploy the [Spring Petclinic Microservices](https://
 
 This lab has modules on:
 
+* Trying to correct the problems from the original lab
 * Plan a Java application migration to Azure Kubernetes Service
 * Migrate a Spring Apps microservices application to Azure Kubernetes Service
 * Enable monitoring and end-to-end tracing
